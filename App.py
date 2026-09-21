@@ -11,21 +11,39 @@ from sklearn.metrics import accuracy_score
 st.set_page_config(page_title="Neptune AI - Web Edition", layout="wide")
 
 st.title("🌌 Neptune AI - Executive Data Science & ML Hub")
-st.markdown("Welcome to the web deployment edition of Neptune! Upload a CSV dataset below to begin exploration, automated EDA, and AutoML benchmarking.")
+st.markdown("Welcome to the web deployment edition of Neptune! Explore automated EDA, correlation heatmaps, and AutoML benchmarking below.")
 
-uploaded_file = st.file_uploader("Upload your CSV dataset", type=["csv"])
+# Sidebar for controls and data selection
+st.sidebar.header("📁 Data Source Selection")
+data_option = st.sidebar.radio("Choose Dataset Source", ["Use Built-in Sample Dataset", "Upload Custom CSV"])
 
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.success("Dataset successfully loaded into Neptune's web core!")
-    
+df = None
+
+if data_option == "Use Built-in Sample Dataset":
+    # Built-in default sample data so you never have to upload manually
+    data = {
+        'Hours_Studied': [7, 4, 8, 3, 7, 3, 7, 5, 4, 2, 5, 6, 6, 1, 4, 5, 7, 3, 2, 6],
+        'Previous_Scores': [99, 82, 51, 52, 75, 78, 73, 45, 79, 89, 80, 72, 75, 37, 88, 74, 93, 43, 52, 91],
+        'Sleep_Hours': [9, 4, 7, 3, 7, 7, 5, 9, 9, 4, 7, 8, 6, 8, 4, 6, 8, 9, 6, 6],
+        'Sample_Question_Papers_Practiced': [1, 2, 2, 2, 5, 2, 6, 2, 2, 0, 2, 3, 4, 1, 3, 1, 3, 3, 2, 3],
+        'Performance_Index': [91.0, 65.0, 45.0, 36.0, 66.0, 61.0, 64.0, 48.0, 60.0, 62.0, 64.0, 63.0, 64.0, 34.0, 68.0, 60.0, 85.0, 40.0, 43.0, 78.0]
+    }
+    df = pd.DataFrame(data)
+    st.sidebar.success("Loaded built-in sample dataset successfully!")
+else:
+    uploaded_file = st.sidebar.file_uploader("Upload your custom CSV", type=["csv"])
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
+        st.sidebar.success("Custom CSV uploaded successfully!")
+
+if df is not None:
     # Tabs for features
     tab1, tab2, tab3 = st.tabs(["📊 Data Preview & AutoEDA", "⚡ AutoML Benchmark Arena", "📈 Visualizer & Heatmap"])
     
     with tab1:
-        st.subheader("Dataset Structure")
-        st.write(f"Rows: {df.shape[0]} | Columns: {df.shape[1]}")
-        st.dataframe(df.head())
+        st.subheader("Dataset Structure Matrix")
+        st.write(f"Total Rows: {df.shape[0]} | Total Columns: {df.shape[1]}")
+        st.dataframe(df.head(10))
         
         st.subheader("Statistical Summary")
         st.write(df.describe())
@@ -62,7 +80,7 @@ if uploaded_file is not None:
                     best_model = max(results, key=results.get)
                     st.success(f"Optimal Model Selected: **{best_model}** with highest accuracy!")
         else:
-            st.warning("Please upload a dataset containing numeric columns.")
+            st.warning("Selected dataset does not contain valid numeric columns.")
             
     with tab3:
         st.subheader("Feature Correlation Heatmap")
@@ -74,4 +92,4 @@ if uploaded_file is not None:
         else:
             st.warning("No numeric columns available for heatmap generation.")
 else:
-    st.info("Awaiting CSV dataset upload to ignite Neptune's web core...")
+    st.info("Please select or upload a dataset using the sidebar to ignite Neptune's web core.")
