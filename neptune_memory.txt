@@ -1,0 +1,5 @@
+- The user's name is Vaibhav.
+- The user operates an ASUS laptop.
+- The user studies Python and data science.
+- The user builds dashboards using Power BI and Tableau.
+- The user's friend Tejas has a birthday on September 18.
