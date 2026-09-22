@@ -38,6 +38,8 @@ audio_amplitude = 0.0
 voice_muted = False
 current_theme_idx = 0
 current_pause_threshold = 2.0
+# Keep Neptune actively listening instead of automatically entering STANDBY after a timeout.
+AUTO_STANDBY_ENABLED = False
 
 # 7 Professional Themes
 THEMES = [
@@ -377,18 +379,50 @@ def autonomous_data_pipeline(instruction: str) -> str:
         return f"Pipeline execution failed: {e}"
 
 def listen():
+    """Continuously listen without forcing Neptune into standby on silence.
+
+    The old implementation returned TIMEOUT_STANDBY after 20 seconds and
+    neptune_ai_worker changed the UI to STANDBY. That made the system appear
+    to stop listening even though the application was still running.
+    """
     global current_pause_threshold
     recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
-        recognizer.pause_threshold = current_pause_threshold
-        recognizer.adjust_for_ambient_noise(source, duration=0.5)
-        try:
-            audio = recognizer.listen(source, timeout=20, phrase_time_limit=30)
-            return recognizer.recognize_google(audio)
-        except sr.WaitTimeoutError:
-            return "TIMEOUT_STANDBY"
-        except Exception:
+    recognizer.pause_threshold = current_pause_threshold
+    recognizer.non_speaking_duration = 0.5
+
+    try:
+        with sr.Microphone() as source:
+            recognizer.adjust_for_ambient_noise(source, duration=0.35)
+            audio = recognizer.listen(
+                source,
+                timeout=8,
+                phrase_time_limit=30
+            )
+            # Try Marathi/Hindi/English-friendly Google speech recognition
+            # settings in sequence. Google may reject a locale if unavailable.
+            for lang in ("en-IN", "hi-IN", "mr-IN"):
+                try:
+                    text = recognizer.recognize_google(audio, language=lang)
+                    if text and text.strip():
+                        return text.strip()
+                except sr.UnknownValueError:
+                    continue
+                except sr.RequestError:
+                    break
             return ""
+    except sr.WaitTimeoutError:
+        # Silence is normal. Do NOT change Neptune's state.
+        return ""
+    except sr.UnknownValueError:
+        return ""
+    except sr.RequestError as e:
+        ui_comm.update_log.emit(f"VOICE: Speech recognition service unavailable: {e}")
+        time.sleep(1.0)
+        return ""
+    except Exception as e:
+        ui_comm.update_log.emit(f"VOICE: Microphone/listening notice: {e}")
+        time.sleep(0.5)
+        return ""
 
 # --- FEATURE 1: Automated Preprocessing Pipeline ---
 def automated_preprocessing() -> str:
@@ -512,33 +546,44 @@ def process_command(cmd_text):
         speak("Apologies, my systems encountered an error.")
 
 def neptune_ai_worker():
-    ui_comm.update_log.emit("SYS: Core systems online.")
-    speak("Systems online. I am listening.")
-    is_standby = False
-    
+    ui_comm.update_state.emit("ACTIVE")
+    ui_comm.update_log.emit("SYS: Core systems online. Continuous listening enabled.")
+    speak("Systems online. I am listening continuously.")
+
     while True:
         try:
+            # Always remain ACTIVE. Silence simply means there is no command.
             user_voice_input = listen()
-            if user_voice_input == "TIMEOUT_STANDBY":
-                if not is_standby:
-                    ui_comm.update_state.emit("STANDBY")
-                    ui_comm.update_log.emit("SYS: Entering low-power standby mode.")
-                    is_standby = True
+            if not user_voice_input:
                 continue
-            if not user_voice_input: continue
-            user_text = user_voice_input.lower()
-            if "neptune" in user_text:
-                if is_standby:
-                    ui_comm.update_state.emit("ACTIVE")
-                    ui_comm.update_log.emit("SYS: Wake word detected. Igniting core.")
-                    is_standby = False
-                if any(word in user_text for word in ["exit system", "shut down neptune"]):
+
+            user_text = user_voice_input.strip().lower()
+
+            # Accept Neptune wake word in English/Hindi/Marathi text.
+            wake_words = (
+                "neptune",
+                "नेप्च्यून",
+                "नेपच्यून",
+                "नेप्ट्यून"
+            )
+
+            if any(word in user_text for word in wake_words):
+                if any(word in user_text for word in [
+                    "exit system",
+                    "shut down neptune",
+                    "shutdown neptune",
+                    "neptune बंद कर",
+                    "neptune बंद करा"
+                ]):
                     speak("Shutting down systems. Goodbye.")
                     os._exit(0)
+
                 process_command(user_voice_input)
+
         except Exception as worker_err:
             print(f"Worker Exception: {worker_err}")
-            continue
+            ui_comm.update_log.emit(f"VOICE WORKER: {worker_err}")
+            time.sleep(0.5)
 
 def audio_analyzer_worker(hud_widget):
     global audio_amplitude
@@ -716,7 +761,7 @@ class DynamicHUDWidget(QWidget):
         self.pulse = 0
         self.pulse_dir = 1
         self.current_state = "ACTIVE"
-        self.status_text = "SYSTEMS ONLINE. LISTENING..."
+        self.status_text = "SYSTEMS ONLINE • CONTINUOUS LISTENING"
         self.system_logs = ["SYS: Neptune ML Core fully initialized."]
         self.dialogue_history = ["NEPTUNE: Systems online."]
         self.cpu_usage = 0
@@ -975,7 +1020,7 @@ class DynamicHUDWidget(QWidget):
     def change_system_state(self, new_state):
         self.current_state = new_state
         if new_state == "STANDBY":
-            self.status_text = "SYSTEM STANDBY • AWAITING WAKE WORD"
+            self.status_text = "SYSTEM STANDBY • MANUAL STANDBY STATE"
         elif new_state == "ACTIVE":
             self.status_text = "SYSTEMS ONLINE • LISTENING"
         self.update()
